@@ -1,0 +1,54 @@
+name: Daily Vacancies
+
+on:
+  schedule:
+    # 12:00 Europe/Moscow = 09:00 UTC
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "fetch — парсинг; test — тест в канал; status — отчёт"
+        required: true
+        default: fetch
+        type: choice
+        options:
+          - fetch
+          - test
+          - status
+
+jobs:
+  post-vacancies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore vacancies database
+        uses: actions/cache@v4
+        with:
+          path: data/vacancies.db
+          key: vacancies-db-v1
+          restore-keys: vacancies-db-v1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HH_USER_AGENT: ${{ secrets.HH_USER_AGENT }}
+          TELEGRAM_ADMIN_ID: ${{ secrets.TELEGRAM_ADMIN_ID }}
+          TIMEZONE: Europe/Moscow
+          MAX_POSTS_PER_RUN: "30"
+          RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'fetch' }}
+        run: |
+          mkdir -p data
+          python -m bot.run_once "${RUN_MODE}"
