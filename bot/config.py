@@ -42,7 +42,7 @@ class Settings:
                 "ProductDesignerVacancyBot/1.0 (contact@example.com)",
             ).strip(),
             timezone=os.getenv("TIMEZONE", "Europe/Moscow").strip(),
-            max_posts_per_run=int(os.getenv("MAX_POSTS_PER_RUN", "30")),
+            max_posts_per_run=int(os.getenv("MAX_POSTS_PER_RUN", "35")),
             db_path=BASE_DIR / "data" / "vacancies.db",
         )
 

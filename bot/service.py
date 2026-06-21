@@ -14,8 +14,6 @@ from bot.database import VacancyDatabase
 from bot.formatters import format_combined_digest
 from bot.models import Vacancy
 from bot.parsers.base import BaseParser
-from bot.parsers.djinni import DjinniParser
-from bot.parsers.dou import DouParser
 from bot.parsers.geekjob import GeekJobParser
 from bot.parsers.getmatch import GetMatchParser
 from bot.parsers.habr import HabrParser
@@ -35,8 +33,6 @@ class VacancyService:
             HabrParser(),
             GeekJobParser(),
             GetMatchParser(),
-            DjinniParser(),
-            DouParser(),
             RemoteJobParser(),
         ]
 
@@ -94,15 +90,22 @@ class VacancyService:
         if not new_vacancies:
             return 0
 
-        text, included = format_combined_digest(new_vacancies, total_found)
-        await self._safe_send(text)
+        messages, included = format_combined_digest(new_vacancies, total_found)
+        for message in messages:
+            await self._safe_send(message)
+            if len(messages) > 1:
+                await asyncio.sleep(0.4)
         return included
 
     async def send_test_post(self) -> int:
         samples = self._sample_vacancies()
-        text, included = format_combined_digest(samples, len(samples))
-        text = "🧪 <b>Тестовая публикация</b>\n\n" + text
-        await self._safe_send(text)
+        messages, included = format_combined_digest(samples, len(samples))
+        if messages:
+            messages[0] = "🧪 <b>Тестовая публикация</b>\n\n" + messages[0]
+        for message in messages:
+            await self._safe_send(message)
+            if len(messages) > 1:
+                await asyncio.sleep(0.4)
         return included
 
     @staticmethod

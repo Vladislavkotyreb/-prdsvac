@@ -7,13 +7,11 @@ SOURCE_LABELS = {
     "habr.com": "Habr Career",
     "geekjob.ru": "GeekJob",
     "getmatch.ru": "GetMatch",
-    "djinni.co": "Djinni",
-    "dou.ua": "DOU",
     "remote-job.ru": "Remote-job.ru",
 }
 
-
 TELEGRAM_MAX_LENGTH = 4096
+SEPARATOR = "\n\n" + "—" * 16 + "\n\n"
 
 
 def format_vacancy(vacancy: Vacancy) -> str:
@@ -48,42 +46,47 @@ def format_digest_header(new_count: int, total_found: int) -> str:
     )
 
 
+def format_continuation_header(part: int, total_parts: int) -> str:
+    return f"✨ <b>Продолжение</b> ({part}/{total_parts})"
+
+
 def format_combined_digest(
     new_vacancies: list[Vacancy], total_found: int
-) -> tuple[str, int]:
-    """Собирает все вакансии в одно сообщение. Возвращает (текст, число включённых)."""
-    header = format_digest_header(len(new_vacancies), total_found)
+) -> tuple[list[str], int]:
+    """Собирает вакансии в одно или несколько сообщений. Возвращает (тексты, число включённых)."""
     if not new_vacancies:
-        return header, 0
+        return [], 0
 
-    separator = "\n\n" + "—" * 16 + "\n\n"
-    parts = [header]
+    messages: list[str] = []
+    parts = [format_digest_header(len(new_vacancies), total_found)]
     included = 0
 
     for vacancy in new_vacancies:
         block = format_vacancy(vacancy)
-        candidate = separator.join(parts + [block])
-        omitted = len(new_vacancies) - included - 1
-        suffix = (
-            f"\n\n… и ещё {omitted} (не влезло в лимит Telegram — {TELEGRAM_MAX_LENGTH} символов)"
-            if omitted > 0
-            else ""
-        )
+        if len(SEPARATOR.join(parts + [block])) <= TELEGRAM_MAX_LENGTH:
+            parts.append(block)
+            included += 1
+            continue
 
-        if len(candidate + suffix) > TELEGRAM_MAX_LENGTH:
-            break
+        if parts:
+            messages.append(SEPARATOR.join(parts))
 
-        parts.append(block)
+        parts = [block]
+        if len(parts[0]) > TELEGRAM_MAX_LENGTH:
+            parts = [parts[0][: TELEGRAM_MAX_LENGTH - 1] + "…"]
         included += 1
 
-    message = separator.join(parts)
-    omitted = len(new_vacancies) - included
-    if omitted:
-        message += (
-            f"\n\n… и ещё {omitted} (не влезло в лимит Telegram — {TELEGRAM_MAX_LENGTH} символов)"
-        )
+    if parts:
+        messages.append(SEPARATOR.join(parts))
 
-    return message, included
+    if len(messages) > 1:
+        total_parts = len(messages)
+        messages[1:] = [
+            format_continuation_header(index, total_parts) + SEPARATOR + message
+            for index, message in enumerate(messages[1:], start=2)
+        ]
+
+    return messages, included
 
 
 def escape_html(text: str) -> str:
