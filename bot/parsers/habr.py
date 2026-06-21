@@ -51,39 +51,39 @@ class HabrParser(BaseParser):
     def _parse_html(self, html: str) -> list[Vacancy]:
         soup = BeautifulSoup(html, "lxml")
         results: list[Vacancy] = []
+        seen_ids: set[str] = set()
 
-        for link in soup.select('a[href^="/vacancies/"]'):
-            href = link.get("href", "")
-            title = link.get_text(strip=True)
-            if not title or not href.startswith("/vacancies/"):
+        for card in soup.select("div.vacancy-card"):
+            title_link = card.select_one("a.vacancy-card__title-link")
+            if not title_link:
+                title_link = card.select_one('a[href^="/vacancies/"][aria-label]')
+            if not title_link:
                 continue
 
+            href = title_link.get("href", "")
+            title = title_link.get_text(strip=True) or title_link.get("aria-label", "").strip()
             external_id = self._extract_id(href)
-            if not external_id:
+            if not external_id or not title or external_id in seen_ids:
                 continue
+            seen_ids.add(external_id)
 
-            card = link.find_parent("div", class_=re.compile(r"vacancy"))
-            company = "—"
+            company = self._extract_company(card)
             salary = None
             location = None
 
-            if card:
-                company_el = card.select_one('[class*="company"]')
-                if company_el:
-                    company = company_el.get_text(strip=True) or company
+            meta_text = card.get_text(" ", strip=True)
+            salary_match = re.search(
+                r"(\d[\d\s]*(?:\s*—\s*\d[\d\s]*)?\s*(?:₽|\$|€|руб\.?))",
+                meta_text,
+            )
+            if salary_match:
+                salary = salary_match.group(1).strip()
 
-                meta_text = card.get_text(" ", strip=True)
-                salary_match = re.search(
-                    r"(\d[\d\s]*(?:\s*—\s*\d[\d\s]*)?\s*(?:₽|\$|€|руб\.?))",
-                    meta_text,
-                )
-                if salary_match:
-                    salary = salary_match.group(1).strip()
-
-                if "удал" in meta_text.lower():
-                    location = "Удалённо"
-                elif "офис" in meta_text.lower():
-                    location = "Офис"
+            meta_lower = meta_text.lower()
+            if "удал" in meta_lower:
+                location = "Удалённо"
+            elif "офис" in meta_lower:
+                location = "Офис"
 
             results.append(
                 Vacancy(
@@ -97,25 +97,47 @@ class HabrParser(BaseParser):
                 )
             )
 
-        # Fallback: regex по ссылкам, если разметка изменилась
         if not results:
-            for href, title in re.findall(
-                r'href="(/vacancies/\d+[^"]*)"[^>]*>([^<]+)<', html
-            ):
-                title = title.strip()
-                external_id = self._extract_id(href)
-                if not external_id or not title:
-                    continue
-                results.append(
-                    Vacancy(
-                        source=self.source,
-                        external_id=external_id,
-                        title=title,
-                        company="—",
-                        url=urljoin(BASE_URL, href),
-                    )
-                )
+            results = self._parse_html_fallback(html)
 
+        return results
+
+    @staticmethod
+    def _extract_company(card) -> str:
+        for company_link in card.select('a[href*="/companies/"]'):
+            href = company_link.get("href", "")
+            if "/scores/" in href:
+                continue
+            name = company_link.get_text(strip=True)
+            if name:
+                return name
+
+        company_el = card.select_one(".vacancy-card__company")
+        if company_el:
+            name = re.sub(r"\s*\d+\.\d+\s*$", "", company_el.get_text(strip=True)).strip()
+            if name:
+                return name
+
+        return "—"
+
+    def _parse_html_fallback(self, html: str) -> list[Vacancy]:
+        results: list[Vacancy] = []
+        for href, title in re.findall(
+            r'href="(/vacancies/\d+[^"]*)"[^>]*>([^<]+)<', html
+        ):
+            title = title.strip()
+            external_id = self._extract_id(href)
+            if not external_id or not title:
+                continue
+            results.append(
+                Vacancy(
+                    source=self.source,
+                    external_id=external_id,
+                    title=title,
+                    company="—",
+                    url=urljoin(BASE_URL, href),
+                )
+            )
         return results
 
     @staticmethod
