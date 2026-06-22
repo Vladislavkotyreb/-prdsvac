@@ -7,6 +7,8 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from aiogram.enums import ParseMode
@@ -48,6 +50,20 @@ def format_status(db: VacancyDatabase) -> str:
     )
 
 
+def should_run_scheduled_fetch(db: VacancyDatabase, timezone: str) -> tuple[bool, str]:
+    if os.getenv("GITHUB_EVENT_NAME") != "schedule":
+        return True, "manual run"
+
+    if db.has_successful_post_today(timezone):
+        return False, "сегодня уже была успешная публикация"
+
+    hour = datetime.now(ZoneInfo(timezone)).hour
+    if hour < 12:
+        return False, f"ещё не 12:00 {timezone} (сейчас {hour}:xx)"
+
+    return True, f"окно публикации открыто ({hour}:xx {timezone})"
+
+
 async def main() -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -80,6 +96,12 @@ async def main() -> int:
                 )
             return 0
 
+        allowed, reason = should_run_scheduled_fetch(db, settings.timezone)
+        if not allowed:
+            logger.info("Автопубликация пропущена: %s", reason)
+            return 0
+
+        logger.info("Автопубликация: %s", reason)
         found, posted = await service.run_daily_post()
         logger.info("Готово: найдено=%s, опубликовано=%s", found, posted)
         if posted:

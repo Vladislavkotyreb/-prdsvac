@@ -2,8 +2,9 @@ name: Daily Vacancies
 
 on:
   schedule:
-    # 12:00 Europe/Moscow = 09:00 UTC
-    - cron: "0 9 * * *"
+    # GitHub cron ненадёжен по минутам — проверяем каждый час,
+    # пост в канал только с 12:00 MSK (см. bot/run_once.py).
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -15,6 +16,10 @@ on:
           - fetch
           - test
           - status
+
+concurrency:
+  group: daily-vacancies
+  cancel-in-progress: false
 
 jobs:
   post-vacancies:
@@ -58,6 +63,7 @@ jobs:
 
       - name: Run bot
         env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           HH_USER_AGENT: ${{ secrets.HH_USER_AGENT }}
@@ -70,5 +76,5 @@ jobs:
           if [ -z "$MODE" ]; then
             MODE="fetch"
           fi
-          echo "Running mode: $MODE"
+          echo "Running mode: $MODE (event=${{ github.event_name }})"
           python -m bot.run_once "$MODE"

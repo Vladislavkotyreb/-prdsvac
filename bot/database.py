@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
+from zoneinfo import ZoneInfo
 
 from bot.models import Vacancy
 
@@ -120,3 +121,15 @@ class VacancyDatabase:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS cnt FROM vacancies").fetchone()
             return int(row["cnt"])
+
+    def has_successful_post_today(self, timezone: str) -> bool:
+        last = self.last_run()
+        if not last or last["status"] != "ok":
+            return False
+
+        started = datetime.fromisoformat(last["started_at"])
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+
+        tz = ZoneInfo(timezone)
+        return started.astimezone(tz).date() == datetime.now(tz).date()
