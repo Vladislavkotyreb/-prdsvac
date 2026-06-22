@@ -83,6 +83,7 @@ git push -u origin main
 | `TELEGRAM_BOT_TOKEN` | ✅ | токен от @BotFather |
 | `TELEGRAM_CHAT_ID` | ✅ | `-1004396616905` |
 | `HH_USER_AGENT` | ✅ | `ProductDesignerVacancyBot/1.0 (kotvlad2016@gmail.com)` |
+| `HH_ACCESS_TOKEN` | ⬜ | токен приложения HH.ru из `dev.hh.ru/admin`, если анонимные запросы получают 403 |
 | `TELEGRAM_ADMIN_ID` | ⬜ | ваш ID от @userinfobot (уведомления в личку) |
 
 ### 3. Первый запуск

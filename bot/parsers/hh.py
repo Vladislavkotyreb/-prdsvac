@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-
-import logging
 
 import aiohttp
 
 from bot.config import HH_AREAS, SEARCH_QUERIES, Settings
+from bot.dates import parse_iso_datetime
 from bot.filters import is_product_designer_vacancy
 from bot.models import Vacancy
 from bot.parsers.base import BaseParser
@@ -24,10 +24,11 @@ class HHParser(BaseParser):
 
     async def fetch(self) -> list[Vacancy]:
         results: dict[str, Vacancy] = {}
-        headers = {"User-Agent": self.settings.hh_user_agent}
-        date_from = (
-            datetime.now(timezone.utc) - timedelta(hours=72)
-        ).date().isoformat()
+        headers = self._headers()
+        date_to_dt = datetime.now(timezone.utc)
+        date_from_dt = date_to_dt - timedelta(hours=self.settings.max_vacancy_age_hours)
+        date_from = date_from_dt.isoformat(timespec="seconds")
+        date_to = date_to_dt.isoformat(timespec="seconds")
 
         async with aiohttp.ClientSession(headers=headers) as session:
             for area in HH_AREAS:
@@ -40,16 +41,19 @@ class HHParser(BaseParser):
                             "per_page": 100,
                             "page": page,
                             "order_by": "publication_time",
+                            "search_field": "name",
                             "date_from": date_from,
+                            "date_to": date_to,
                         }
                         async with session.get(self.API_URL, params=params) as resp:
                             if resp.status != 200:
                                 body = await resp.text()
                                 logger.warning(
-                                    "HH.ru API %s для area=%s query=%r: %s",
+                                    "HH.ru API %s для area=%s query=%r auth=%s: %s",
                                     resp.status,
                                     area,
                                     query,
+                                    "yes" if self.settings.hh_access_token else "no",
                                     body[:200],
                                 )
                                 break
@@ -70,9 +74,21 @@ class HHParser(BaseParser):
 
         return list(results.values())
 
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "User-Agent": self.settings.hh_user_agent,
+            "Accept": "application/json",
+        }
+        if self.settings.hh_access_token:
+            headers["Authorization"] = f"Bearer {self.settings.hh_access_token}"
+        return headers
+
     def _parse_item(self, item: dict[str, Any]) -> Optional[Vacancy]:
         title = item.get("name", "")
         if not title:
+            return None
+        external_id = str(item.get("id", ""))
+        if not external_id:
             return None
 
         salary = self._format_salary(item.get("salary"))
@@ -88,13 +104,13 @@ class HHParser(BaseParser):
 
         published_at = None
         if published := item.get("published_at"):
-            published_at = datetime.fromisoformat(published.replace("Z", "+00:00"))
+            published_at = parse_iso_datetime(published)
 
         employer = item.get("employer", {}) or {}
 
         return Vacancy(
             source=self.source,
-            external_id=str(item["id"]),
+            external_id=external_id,
             title=title,
             company=employer.get("name", "—"),
             url=item.get("alternate_url", ""),

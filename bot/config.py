@@ -15,6 +15,7 @@ class Settings:
     telegram_bot_token: str
     telegram_chat_id: int
     hh_user_agent: str
+    hh_access_token: str
     timezone: str
     max_vacancy_age_hours: int
     db_path: Path
@@ -34,13 +35,16 @@ class Settings:
                 "Локально: .env | GitHub: Settings → Secrets → Actions"
             )
 
+        hh_user_agent = (
+            os.getenv("HH_USER_AGENT")
+            or "ProductDesignerVacancyBot/1.0 (kotvlad2016@gmail.com)"
+        ).strip()
+
         return cls(
             telegram_bot_token=token,
             telegram_chat_id=int(chat_id),
-            hh_user_agent=os.getenv(
-                "HH_USER_AGENT",
-                "ProductDesignerVacancyBot/1.0 (contact@example.com)",
-            ).strip(),
+            hh_user_agent=hh_user_agent,
+            hh_access_token=os.getenv("HH_ACCESS_TOKEN", "").strip(),
             timezone=os.getenv("TIMEZONE", "Europe/Moscow").strip(),
             max_vacancy_age_hours=int(os.getenv("MAX_VACANCY_AGE_HOURS", "72")),
             db_path=BASE_DIR / "data" / "vacancies.db",

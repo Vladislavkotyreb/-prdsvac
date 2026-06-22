@@ -45,10 +45,11 @@ cp .env.example .env
 TELEGRAM_BOT_TOKEN=ваш_токен
 TELEGRAM_CHAT_ID=-1001234567890
 HH_USER_AGENT=ProductDesignerVacancyBot/1.0 (your@email.com)
+HH_ACCESS_TOKEN=
 TIMEZONE=Europe/Moscow
 ```
 
-> **Важно:** для HH.ru API обязателен корректный `User-Agent` с контактным email ([документация](https://github.com/hhru/api)).
+> **Важно:** для HH.ru API обязателен корректный `User-Agent` с контактным email. Если анонимные запросы получают `403`, зарегистрируйте приложение на `dev.hh.ru` и добавьте `HH_ACCESS_TOKEN` из кабинета приложения ([документация](https://github.com/hhru/api)).
 
 ### 4. Запуск
 
