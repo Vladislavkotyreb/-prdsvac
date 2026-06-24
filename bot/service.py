@@ -7,7 +7,7 @@ from typing import Iterable
 
 from aiogram import Bot
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 
 from bot.config import Settings
 from bot.database import VacancyDatabase
@@ -181,6 +181,7 @@ class VacancyService:
         ]
 
     async def _safe_send(self, text: str) -> None:
+        network_retries = 0
         while True:
             try:
                 await self.bot.send_message(
@@ -192,3 +193,10 @@ class VacancyService:
                 return
             except TelegramRetryAfter as exc:
                 await asyncio.sleep(exc.retry_after + 1)
+            except TelegramNetworkError as exc:
+                network_retries += 1
+                if network_retries > 3:
+                    raise
+                wait = 10 * network_retries
+                logger.warning("Сеть недоступна (%s), повтор через %s с: %s", network_retries, wait, exc)
+                await asyncio.sleep(wait)
