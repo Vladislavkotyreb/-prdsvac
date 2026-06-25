@@ -12,6 +12,7 @@ SOURCE_LABELS = {
 
 TELEGRAM_MAX_LENGTH = 4096
 SEPARATOR = "\n\n" + "—" * 16 + "\n\n"
+CHANNEL_FOOTER = "\n\n" + "—" * 9 + "\n" + '<a href="https://t.me/prdsvac">Product design vacancies daily</a>'
 
 
 def format_vacancy(vacancy: Vacancy) -> str:
@@ -87,6 +88,10 @@ def format_combined_digest(
             format_continuation_header(index, total_parts) + SEPARATOR + message
             for index, message in enumerate(messages[1:], start=2)
         ]
+
+    # Футер с упоминанием канала добавляется только в последнее сообщение
+    if messages:
+        messages[-1] += CHANNEL_FOOTER
 
     return messages, included
 
