@@ -19,7 +19,6 @@ from bot.parsers.geekjob import GeekJobParser
 from bot.parsers.getmatch import GetMatchParser
 from bot.parsers.habr import HabrParser
 from bot.parsers.hh import HHParser
-from bot.parsers.remotejob import RemoteJobParser
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,6 @@ class VacancyService:
             HabrParser(),
             GeekJobParser(),
             GetMatchParser(),
-            RemoteJobParser(),
         ]
 
     async def collect_all(self) -> list[Vacancy]:

@@ -7,7 +7,6 @@ SOURCE_LABELS = {
     "habr.com": "Habr Career",
     "geekjob.ru": "GeekJob",
     "getmatch.ru": "GetMatch",
-    "remote-job.ru": "Remote-job.ru",
 }
 
 TELEGRAM_MAX_LENGTH = 4096
