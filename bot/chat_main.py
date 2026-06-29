@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 router = Router()
 PID_FILE = Path(__file__).resolve().parent.parent / "logs" / "chat-bot.pid"
 
-BTN_CHOOSE_ROLE = "🎯 Выбрать роль"
-BTN_MY_SUBSCRIPTION = "📋 Моя подписка"
-BTN_UNSUBSCRIBE = "🚫 Отписаться"
+BTN_CHOOSE_ROLE = "Выбрать роль"
+BTN_MY_SUBSCRIPTION = "Моя подписка"
+BTN_UNSUBSCRIBE = "Отписаться"
 
 
 def _acquire_single_instance() -> None:
@@ -105,7 +105,7 @@ async def send_subscription_info(message: Message, db: VacancyDatabase) -> None:
     subscriber = db.get_subscriber(message.from_user.id)
     if not subscriber:
         await message.answer(
-            "Ты пока не подписан.\nНажми «🎯 Выбрать роль» и выбери направление.",
+            "Ты пока не подписан.\nНажми «Выбрать роль» и выбери направление.",
             reply_markup=main_menu_keyboard(),
         )
         return
@@ -114,8 +114,8 @@ async def send_subscription_info(message: Message, db: VacancyDatabase) -> None:
     label = role.label if role else subscriber["role"]
     await message.answer(
         f"Текущая подписка: <b>{label}</b>\n"
-        "Сменить роль — «🎯 Выбрать роль»\n"
-        "Отписаться — «🚫 Отписаться»",
+        "Сменить роль — «Выбрать роль»\n"
+        "Отписаться — «Отписаться»",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
@@ -135,7 +135,7 @@ async def unsubscribe_user(message: Message, db: VacancyDatabase) -> None:
 
     db.deactivate_subscriber(message.from_user.id)
     await message.answer(
-        "Подписка отменена.\nЧтобы вернуться — «🎯 Выбрать роль».",
+        "Подписка отменена.\nЧтобы вернуться — «Выбрать роль».",
         reply_markup=main_menu_keyboard(),
     )
 

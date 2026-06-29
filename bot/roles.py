@@ -75,7 +75,7 @@ ROLES: dict[str, Role] = {
     "frontend": Role(
         id="frontend",
         label="frontend-разработчика",
-        button_label="💻 Frontend",
+        button_label="Frontend",
         hh_queries=(
             "frontend developer",
             "frontend разработчик",
@@ -92,7 +92,7 @@ ROLES: dict[str, Role] = {
     "backend": Role(
         id="backend",
         label="backend-разработчика",
-        button_label="⚙️ Backend",
+        button_label="Backend",
         hh_queries=(
             "backend developer",
             "backend разработчик",
