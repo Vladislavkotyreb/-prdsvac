@@ -29,9 +29,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("fetch", "test", "status", "subscribers"),
+        choices=("fetch", "test", "status", "subscribers", "subscribers-preview"),
         default=os.getenv("RUN_MODE", "fetch"),
-        help="fetch — пост в канал; subscribers — рассылка подписчикам; test/status — служебные",
+        help="fetch — пост в канал; subscribers — рассылка; subscribers-preview — проверка без отправки",
     )
     return parser.parse_args()
 
@@ -130,6 +130,11 @@ async def main() -> int:
                     f"Активных подписчиков: {stats['subscribers']}\n"
                     f"Отправлено сообщений: {stats['messages']}",
                 )
+            return 0
+
+        if args.mode == "subscribers-preview":
+            subscriber_service = SubscriberService(settings, db, bot)
+            await subscriber_service.preview_digests()
             return 0
 
         allowed, reason = should_run_scheduled_fetch(db, settings.timezone)

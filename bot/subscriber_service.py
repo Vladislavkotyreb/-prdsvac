@@ -42,6 +42,7 @@ class SubscriberService:
 
             role = get_role(role_id)
             if not role:
+                logger.warning("Неизвестная роль подписчиков: %s — пропуск", role_id)
                 continue
 
             vacancies = await collect_for_role(self.settings, role)
@@ -66,6 +67,57 @@ class SubscriberService:
                     logger.exception("Ошибка рассылки подписчику %s", user_id)
 
         return {"subscribers": len(subscribers), "messages": total_messages}
+
+    async def preview_digests(self) -> None:
+        """Проверка без отправки: что получит каждый подписчик."""
+        subscribers = self.db.list_active_subscribers()
+        if not subscribers:
+            logger.info("PREVIEW: подписчиков нет")
+            return
+
+        by_role: dict[str, list[int]] = {}
+        for row in subscribers:
+            by_role.setdefault(row["role"], []).append(int(row["user_id"]))
+
+        logger.info("PREVIEW: активных подписчиков=%s", len(subscribers))
+
+        for role_id, user_ids in by_role.items():
+            role = get_role(role_id)
+            if not role:
+                logger.warning("PREVIEW: неизвестная роль %s, user_ids=%s", role_id, user_ids)
+                continue
+
+            vacancies = await collect_for_role(self.settings, role)
+            fresh = self._filter_fresh(vacancies)
+            logger.info(
+                "PREVIEW [%s] %s: собрано=%s, свежих=%s, подписчиков=%s",
+                role_id,
+                role.label,
+                len(vacancies),
+                len(fresh),
+                len(user_ids),
+            )
+
+            for user_id in user_ids:
+                new_vacancies = self._filter_new_for_user(user_id, fresh)
+                to_post = dedupe_by_title_company(new_vacancies)
+                if to_post:
+                    titles = "; ".join(v.title[:50] for v in to_post[:5])
+                    extra = f" (+{len(to_post) - 5})" if len(to_post) > 5 else ""
+                    logger.info(
+                        "PREVIEW user=%s [%s]: отправим %s вакансий — %s%s",
+                        user_id,
+                        role_id,
+                        len(to_post),
+                        titles,
+                        extra,
+                    )
+                else:
+                    logger.info(
+                        "PREVIEW user=%s [%s]: новых вакансий нет — DM не уйдёт",
+                        user_id,
+                        role_id,
+                    )
 
     def _filter_fresh(self, vacancies: Iterable[Vacancy]) -> list[Vacancy]:
         return [

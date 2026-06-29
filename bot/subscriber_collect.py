@@ -15,6 +15,8 @@ from bot.roles import Role
 
 logger = logging.getLogger(__name__)
 
+GETMATCH_API_URL = "https://getmatch.ru/api/offers"
+
 
 async def collect_for_role(settings: Settings, role: Role) -> list[Vacancy]:
     results: dict[str, Vacancy] = {}
@@ -30,10 +32,46 @@ async def collect_for_role(settings: Settings, role: Role) -> list[Vacancy]:
                 results[vacancy.uid] = vacancy
 
     if role.uses_getmatch:
-        for vacancy in await GetMatchParser().fetch():
+        getmatch_vacancies = await _fetch_getmatch(role)
+        logger.info("Подписчики [%s] getmatch.ru: найдено %s", role.id, len(getmatch_vacancies))
+        for vacancy in getmatch_vacancies:
             if role.matcher(vacancy.title):
                 results[vacancy.uid] = vacancy
-        logger.info("Подписчики [%s] getmatch.ru: учтено в общем пуле", role.id)
+
+    return list(results.values())
+
+
+async def _fetch_getmatch(role: Role) -> list[Vacancy]:
+    """GetMatch для подписчиков: без фильтра product designer из канального парсера."""
+    parser = GetMatchParser()
+    results: dict[str, Vacancy] = {}
+    offset = 0
+    limit = 50
+    headers = {"Accept": "application/json", "User-Agent": "ProductDesignerVacancyBot/1.0"}
+
+    async with aiohttp.ClientSession(headers=headers) as session:
+        while offset < 500:
+            params = {"specialization": "design", "offset": offset, "limit": limit}
+            async with session.get(GETMATCH_API_URL, params=params) as resp:
+                if resp.status != 200:
+                    break
+                data = await resp.json()
+
+            offers = data.get("offers", [])
+            if not offers:
+                break
+
+            for offer in offers:
+                if offer.get("language") not in (None, "ru"):
+                    continue
+                vacancy = parser._parse_item(offer)
+                if vacancy:
+                    results[vacancy.uid] = vacancy
+
+            total = data.get("meta", {}).get("total", 0)
+            offset += limit
+            if offset >= total:
+                break
 
     return list(results.values())
 
