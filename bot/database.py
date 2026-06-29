@@ -25,6 +25,7 @@ class VacancyDatabase:
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         try:
             yield conn
             conn.commit()
@@ -78,6 +79,28 @@ class VacancyDatabase:
                 )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_vacancies_dedup_key ON vacancies (dedup_key)"
+            )
+
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS subscribers (
+                    user_id INTEGER PRIMARY KEY,
+                    role TEXT NOT NULL,
+                    subscribed_at TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                );
+
+                CREATE TABLE IF NOT EXISTS subscriber_sent (
+                    user_id INTEGER NOT NULL,
+                    vacancy_uid TEXT NOT NULL,
+                    dedup_key TEXT,
+                    sent_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, vacancy_uid)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_subscriber_sent_dedup
+                    ON subscriber_sent (user_id, dedup_key);
+                """
             )
 
     def is_known(self, uid: str) -> bool:
@@ -176,3 +199,90 @@ class VacancyDatabase:
                 (day_start.isoformat(), day_end.isoformat()),
             ).fetchone()
             return row is not None
+
+    def set_subscriber(self, user_id: int, role: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO subscribers (user_id, role, subscribed_at, active)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    role = excluded.role,
+                    subscribed_at = excluded.subscribed_at,
+                    active = 1
+                """,
+                (user_id, role, now),
+            )
+
+    def get_subscriber(self, user_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, role, subscribed_at, active
+                FROM subscribers
+                WHERE user_id = ? AND active = 1
+                """,
+                (user_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def deactivate_subscriber(self, user_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE subscribers SET active = 0 WHERE user_id = ?",
+                (user_id,),
+            )
+
+    def list_active_subscribers(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT user_id, role, subscribed_at
+                FROM subscribers
+                WHERE active = 1
+                ORDER BY role, user_id
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def is_sent_to_subscriber(self, user_id: int, vacancy_uid: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM subscriber_sent
+                WHERE user_id = ? AND vacancy_uid = ?
+                LIMIT 1
+                """,
+                (user_id, vacancy_uid),
+            ).fetchone()
+            return row is not None
+
+    def is_sent_to_subscriber_by_dedup(self, user_id: int, title: str, company: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM subscriber_sent
+                WHERE user_id = ? AND dedup_key = ?
+                LIMIT 1
+                """,
+                (user_id, dedupe_key(title, company or "")),
+            ).fetchone()
+            return row is not None
+
+    def mark_sent_to_subscriber(self, user_id: int, vacancy: Vacancy) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO subscriber_sent
+                (user_id, vacancy_uid, dedup_key, sent_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    vacancy.uid,
+                    dedupe_key(vacancy.title, vacancy.company or ""),
+                    now,
+                ),
+            )

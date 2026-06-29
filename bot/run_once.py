@@ -19,6 +19,7 @@ from aiogram.enums import ParseMode
 from bot.config import Settings
 from bot.database import VacancyDatabase
 from bot.service import VacancyService
+from bot.subscriber_service import SubscriberService
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("fetch", "test", "status"),
+        choices=("fetch", "test", "status", "subscribers"),
         default=os.getenv("RUN_MODE", "fetch"),
-        help="fetch — парсинг и пост; test — тест в канал; status — отчёт",
+        help="fetch — пост в канал; subscribers — рассылка подписчикам; test/status — служебные",
     )
     return parser.parse_args()
 
@@ -110,6 +111,24 @@ async def main() -> int:
             else:
                 logger.info(
                     "TELEGRAM_ADMIN_ID не задан — статус только в логах GitHub Actions"
+                )
+            return 0
+
+        if args.mode == "subscribers":
+            subscriber_service = SubscriberService(settings, db, bot)
+            stats = await subscriber_service.run_daily_digests()
+            logger.info(
+                "Рассылка подписчикам: получателей=%s, сообщений=%s",
+                stats["subscribers"],
+                stats["messages"],
+            )
+            if admin_id:
+                await _notify_admin(
+                    bot,
+                    admin_id,
+                    f"✅ Рассылка подписчикам.\n"
+                    f"Активных подписчиков: {stats['subscribers']}\n"
+                    f"Отправлено сообщений: {stats['messages']}",
                 )
             return 0
 

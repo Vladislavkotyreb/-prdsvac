@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import re
+
+FRONTEND_INCLUDE = [
+    re.compile(r"front[\s-]*end", re.I),
+    re.compile(r"фронт[\s-]*енд", re.I),
+    re.compile(r"react(?:\.?\s*js)?\s*(?:developer|разработ)", re.I),
+    re.compile(r"vue(?:\.?\s*js)?\s*(?:developer|разработ)", re.I),
+    re.compile(r"angular\s*(?:developer|разработ)", re.I),
+    re.compile(r"(?:javascript|typescript)\s*(?:developer|разработ)", re.I),
+]
+
+FRONTEND_EXCLUDE = [
+    re.compile(r"back[\s-]*end|бэкенд", re.I),
+    re.compile(r"full[\s-]*stack|фулстак|fullstack", re.I),
+    re.compile(r"\bqa\b|quality assurance|тестиров", re.I),
+    re.compile(r"devops|sre|site reliability", re.I),
+    re.compile(r"product\s*manager|продуктов(?:ый|ого)\s*менедж", re.I),
+    re.compile(r"дизайн|designer|design\b", re.I),
+    re.compile(r"\bandroid\b|\bios\b|mobile\s*dev", re.I),
+    re.compile(r"data\s*(?:scientist|analyst)|аналитик\s*данных", re.I),
+]
+
+BACKEND_INCLUDE = [
+    re.compile(r"back[\s-]*end", re.I),
+    re.compile(r"бэкенд", re.I),
+    re.compile(r"python\s*(?:developer|разработ|engineer)", re.I),
+    re.compile(r"(?:go|golang)\s*(?:developer|разработ|engineer)", re.I),
+    re.compile(r"java\s*(?:developer|разработ|engineer)", re.I),
+    re.compile(r"node\.?\s*js\s*(?:developer|разработ|engineer)", re.I),
+    re.compile(r"php\s*(?:developer|разработ|engineer)", re.I),
+    re.compile(r"backend[\s-]*разработ", re.I),
+]
+
+BACKEND_EXCLUDE = [
+    re.compile(r"front[\s-]*end|фронт[\s-]*енд", re.I),
+    re.compile(r"full[\s-]*stack|фулстак|fullstack", re.I),
+    re.compile(r"\bqa\b|quality assurance|тестиров", re.I),
+    re.compile(r"devops|sre", re.I),
+    re.compile(r"дизайн|designer|design\b", re.I),
+    re.compile(r"product\s*manager|продуктов(?:ый|ого)\s*менедж", re.I),
+]
+
+
+def _matches(title: str, include: list[re.Pattern], exclude: list[re.Pattern]) -> bool:
+    text = " ".join(title.split())
+    if not text:
+        return False
+    for pattern in exclude:
+        if pattern.search(text):
+            return False
+    for pattern in include:
+        if pattern.search(text):
+            return True
+    return False
+
+
+def is_frontend_vacancy(title: str) -> bool:
+    return _matches(title, FRONTEND_INCLUDE, FRONTEND_EXCLUDE)
+
+
+def is_backend_vacancy(title: str) -> bool:
+    return _matches(title, BACKEND_INCLUDE, BACKEND_EXCLUDE)
