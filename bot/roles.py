@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from bot.filters import is_product_designer_vacancy
-from bot.role_filters import is_backend_vacancy, is_frontend_vacancy
+from bot.role_filters import (
+    is_backend_vacancy,
+    is_communication_designer_vacancy,
+    is_frontend_vacancy,
+    is_graphic_designer_vacancy,
+)
 
 
 @dataclass(frozen=True)
@@ -23,18 +28,49 @@ ROLES: dict[str, Role] = {
     "product_designer": Role(
         id="product_designer",
         label="продуктового дизайнера",
-        button_label="🎨 Product Designer",
+        button_label="UX/UI | Продуктовый дизайнер",
         hh_queries=(
             "продуктовый дизайнер",
             "product designer",
             "product design",
             "продуктовый ux",
             "product ux designer",
+            "ux ui designer",
         ),
         habr_queries=("продуктовый дизайнер", "product designer", "ux ui designer"),
         geekjob_queries=("продуктовый дизайнер", "product designer", "ux designer"),
         uses_getmatch=True,
         matcher=is_product_designer_vacancy,
+    ),
+    "communication_designer": Role(
+        id="communication_designer",
+        label="коммуникационного дизайнера",
+        button_label="Коммуникационный дизайнер",
+        hh_queries=(
+            "коммуникационный дизайнер",
+            "communication designer",
+            "communication design",
+            "visual communication",
+        ),
+        habr_queries=("коммуникационный дизайнер", "communication designer", "communication design"),
+        geekjob_queries=("коммуникационный дизайнер", "communication designer", "communication design"),
+        uses_getmatch=True,
+        matcher=is_communication_designer_vacancy,
+    ),
+    "graphic_designer": Role(
+        id="graphic_designer",
+        label="графического дизайнера",
+        button_label="Графический дизайнер",
+        hh_queries=(
+            "графический дизайнер",
+            "graphic designer",
+            "graphic design",
+            "visual designer",
+        ),
+        habr_queries=("графический дизайнер", "graphic designer", "graphic design"),
+        geekjob_queries=("графический дизайнер", "graphic designer", "дизайнер"),
+        uses_getmatch=True,
+        matcher=is_graphic_designer_vacancy,
     ),
     "frontend": Role(
         id="frontend",
@@ -72,7 +108,13 @@ ROLES: dict[str, Role] = {
     ),
 }
 
-MVP_ROLE_IDS = ("product_designer", "frontend", "backend")
+MVP_ROLE_IDS = (
+    "product_designer",
+    "communication_designer",
+    "graphic_designer",
+    "frontend",
+    "backend",
+)
 
 
 def get_role(role_id: str) -> Optional[Role]:

@@ -62,3 +62,47 @@ def is_frontend_vacancy(title: str) -> bool:
 
 def is_backend_vacancy(title: str) -> bool:
     return _matches(title, BACKEND_INCLUDE, BACKEND_EXCLUDE)
+
+
+GRAPHIC_INCLUDE = [
+    re.compile(r"графическ(?:ий|ого|ая|ое)\s*дизайн", re.I),
+    re.compile(r"graphic\s*design(?:er)?", re.I),
+    re.compile(r"print\s*design", re.I),
+    re.compile(r"полиграф", re.I),
+    re.compile(r"visual\s*designer(?!\s*/?\s*product)", re.I),
+]
+
+GRAPHIC_EXCLUDE = [
+    re.compile(r"product[\s-]*design|продуктов(?:ый|ого)\s*дизайн", re.I),
+    re.compile(r"ux/ui|ui/ux|product\s*ux", re.I),
+    re.compile(r"communication\s*design|коммуникацион", re.I),
+    re.compile(r"front[\s-]*end|back[\s-]*end|бэкенд|фронтенд", re.I),
+    re.compile(r"motion|game\s*design|гейм", re.I),
+    re.compile(r"интерьер|interior|3d\s*design", re.I),
+    re.compile(r"web[\s-]*design|веб[\s-]*дизайн", re.I),
+]
+
+COMMUNICATION_INCLUDE = [
+    re.compile(r"коммуникацион(?:ный|ного|ная|ное)\s*дизайн", re.I),
+    re.compile(r"communication\s*design(?:er)?", re.I),
+    re.compile(r"visual\s*communication", re.I),
+    re.compile(r"brand\s*communication", re.I),
+    re.compile(r"бренд[\s-]*коммуникац", re.I),
+]
+
+COMMUNICATION_EXCLUDE = [
+    re.compile(r"product[\s-]*design|продуктов(?:ый|ого)\s*дизайн", re.I),
+    re.compile(r"ux/ui|ui/ux|product\s*ux", re.I),
+    re.compile(r"front[\s-]*end|back[\s-]*end|бэкенд|фронтенд", re.I),
+    re.compile(r"графическ(?:ий|ого)\s*дизайн", re.I),
+    re.compile(r"graphic\s*design", re.I),
+    re.compile(r"motion|game\s*design|гейм", re.I),
+]
+
+
+def is_graphic_designer_vacancy(title: str) -> bool:
+    return _matches(title, GRAPHIC_INCLUDE, GRAPHIC_EXCLUDE)
+
+
+def is_communication_designer_vacancy(title: str) -> bool:
+    return _matches(title, COMMUNICATION_INCLUDE, COMMUNICATION_EXCLUDE)
