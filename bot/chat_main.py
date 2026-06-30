@@ -40,8 +40,9 @@ BTN_CHOOSE_ROLES = "Выбрать роли"
 BTN_CHOOSE_ROLES_AGAIN = "Выбрать роли заново"
 
 CALLBACK_CATEGORY_PREFIX = "cat:"
+CALLBACK_CAT_CONTINUE = "cat:continue"
 CALLBACK_TOGGLE_PREFIX = "toggle:"
-CALLBACK_CONTINUE = "roles:continue"
+CALLBACK_ROLES_CONTINUE = "roles:continue"
 CALLBACK_BACK = "roles:back"
 
 
@@ -90,6 +91,14 @@ def _choose_roles_button(subscribed: bool) -> str:
     return BTN_CHOOSE_ROLES_AGAIN if subscribed else BTN_CHOOSE_ROLES
 
 
+def _saved_roles_for_category(saved_roles: list[str], category_id: str) -> list[str]:
+    category = get_category(category_id)
+    if not category:
+        return []
+    allowed = set(category.role_ids)
+    return [role_id for role_id in saved_roles if role_id in allowed]
+
+
 def main_menu_keyboard(subscribed: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -102,13 +111,23 @@ def main_menu_keyboard(subscribed: bool = False) -> ReplyKeyboardMarkup:
     )
 
 
-def category_inline_keyboard() -> InlineKeyboardMarkup:
-    buttons = [
-        [InlineKeyboardButton(text=category.title, callback_data=f"{CALLBACK_CATEGORY_PREFIX}{category_id}")]
-        for category_id in CATEGORY_IDS
-        if (category := CATEGORIES.get(category_id))
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+def category_inline_keyboard(selected_category_id: str | None = None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for category_id in CATEGORY_IDS:
+        category = CATEGORIES.get(category_id)
+        if not category:
+            continue
+        prefix = "✓ " if category_id == selected_category_id else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{prefix}{category.title}",
+                    callback_data=f"{CALLBACK_CATEGORY_PREFIX}{category_id}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="Продолжить", callback_data=CALLBACK_CAT_CONTINUE)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def roles_inline_keyboard(category_id: str, selected: set[str]) -> InlineKeyboardMarkup:
@@ -133,10 +152,34 @@ def roles_inline_keyboard(category_id: str, selected: set[str]) -> InlineKeyboar
     rows.append(
         [
             InlineKeyboardButton(text="← Назад", callback_data=CALLBACK_BACK),
-            InlineKeyboardButton(text="Продолжить", callback_data=CALLBACK_CONTINUE),
+            InlineKeyboardButton(text="Продолжить", callback_data=CALLBACK_ROLES_CONTINUE),
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _category_step_text(
+    selected_category_id: str | None, saved_roles: list[str] | None = None
+) -> str:
+    if selected_category_id:
+        category = get_category(selected_category_id)
+        title = category.title if category else selected_category_id
+        current_line = f"Выбрано направление: <b>{title}</b>"
+    else:
+        current_line = "Выбрано направление: <i>ничего</i>"
+
+    lines = ["Шаг 1 из 2 — выбери направление:", current_line]
+
+    if saved_roles:
+        lines.append(f"В подписке: <b>{format_subscription_roles(saved_roles)}</b>")
+
+    lines.extend(
+        [
+            "",
+            "Нажми на направление, затем — «Продолжить».",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _roles_step_text(
@@ -163,21 +206,27 @@ def _roles_step_text(
         [
             "",
             "Нажми на роль, чтобы отметить или снять.",
-            "«Продолжить» — сохранить · «Назад» — к выбору направления.",
+            "«Продолжить» — сохранить · «Назад» — отменить и вернуться.",
         ]
     )
     return "\n".join(lines)
 
 
-async def _show_category_picker(message: Message, state: FSMContext) -> None:
+async def _render_category_step(
+    message: Message,
+    state: FSMContext,
+    selected_category_id: str | None,
+    saved_roles: list[str],
+) -> None:
     await state.set_state(SubscribeFlow.picking_category)
     await message.edit_text(
-        "Шаг 1 из 2 — выбери направление:",
-        reply_markup=category_inline_keyboard(),
+        _category_step_text(selected_category_id, saved_roles),
+        parse_mode="HTML",
+        reply_markup=category_inline_keyboard(selected_category_id),
     )
 
 
-async def _show_roles_picker(
+async def _render_roles_step(
     message: Message,
     state: FSMContext,
     category_id: str,
@@ -185,7 +234,11 @@ async def _show_roles_picker(
     saved_roles: list[str],
 ) -> None:
     await state.set_state(SubscribeFlow.picking_roles)
-    await state.update_data(category_id=category_id, selected_roles=sorted(selected))
+    await state.update_data(
+        pending_category_id=category_id,
+        category_id=category_id,
+        selected_roles=sorted(selected),
+    )
     await message.edit_text(
         _roles_step_text(category_id, selected, saved_roles),
         parse_mode="HTML",
@@ -206,10 +259,15 @@ async def send_welcome(message: Message, subscribed: bool = False) -> None:
 
 async def send_category_picker(message: Message, state: FSMContext) -> None:
     await state.set_state(SubscribeFlow.picking_category)
-    await state.update_data(selected_roles=[])
+    await state.update_data(
+        pending_category_id=None,
+        category_id=None,
+        selected_roles=[],
+    )
     await message.answer(
-        "Шаг 1 из 2 — выбери направление:",
-        reply_markup=category_inline_keyboard(),
+        _category_step_text(None),
+        parse_mode="HTML",
+        reply_markup=category_inline_keyboard(None),
     )
 
 
@@ -293,25 +351,56 @@ async def cmd_myrole(message: Message, db: VacancyDatabase) -> None:
 async def on_category_selected(
     callback: CallbackQuery, state: FSMContext, db: VacancyDatabase
 ) -> None:
-    if not callback.data:
+    if not callback.data or callback.data == CALLBACK_CAT_CONTINUE:
         return
 
     category_id = callback.data[len(CALLBACK_CATEGORY_PREFIX) :]
-    category = get_category(category_id)
-    if not category:
+    if not get_category(category_id):
         await callback.answer("Неизвестное направление", show_alert=True)
         return
 
-    preselected: list[str] = []
+    data = await state.get_data()
+    current = data.get("pending_category_id")
+    pending_category_id = None if current == category_id else category_id
+
     saved_roles: list[str] = []
     if callback.from_user:
         saved_roles = db.get_subscriber_roles(callback.from_user.id)
-        preselected = [role_id for role_id in saved_roles if role_id in category.role_ids]
 
-    await state.update_data(selected_roles=preselected)
+    await state.update_data(
+        pending_category_id=pending_category_id,
+        selected_roles=[],
+    )
+    await callback.answer()
+
+    if callback.message:
+        await _render_category_step(
+            callback.message,
+            state,
+            pending_category_id,
+            saved_roles,
+        )
+
+
+@router.callback_query(F.data == CALLBACK_CAT_CONTINUE)
+async def on_category_continue(
+    callback: CallbackQuery, state: FSMContext, db: VacancyDatabase
+) -> None:
+    if not callback.from_user:
+        return
+
+    data = await state.get_data()
+    category_id = data.get("pending_category_id")
+    if not category_id or not get_category(category_id):
+        await callback.answer("Сначала выбери направление", show_alert=True)
+        return
+
+    saved_roles = db.get_subscriber_roles(callback.from_user.id)
+    preselected = _saved_roles_for_category(saved_roles, category_id)
+
     await callback.answer()
     if callback.message:
-        await _show_roles_picker(
+        await _render_roles_step(
             callback.message,
             state,
             category_id,
@@ -321,10 +410,32 @@ async def on_category_selected(
 
 
 @router.callback_query(F.data == CALLBACK_BACK)
-async def on_roles_back(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.answer()
+async def on_roles_back(
+    callback: CallbackQuery, state: FSMContext, db: VacancyDatabase
+) -> None:
+    if not callback.from_user:
+        return
+
+    data = await state.get_data()
+    category_id = data.get("pending_category_id") or data.get("category_id")
+    saved_roles = db.get_subscriber_roles(callback.from_user.id)
+
+    # Сбрасываем черновик шага 2 — при повторном входе будут только сохранённые роли.
+    preselected = _saved_roles_for_category(saved_roles, category_id) if category_id else []
+    await state.update_data(
+        pending_category_id=category_id,
+        category_id=category_id,
+        selected_roles=preselected,
+    )
+    await callback.answer("Выбор ролей отменён")
+
     if callback.message:
-        await _show_category_picker(callback.message, state)
+        await _render_category_step(
+            callback.message,
+            state,
+            category_id,
+            saved_roles,
+        )
 
 
 @router.callback_query(F.data.startswith(CALLBACK_TOGGLE_PREFIX))
@@ -366,20 +477,29 @@ async def on_role_toggled(
         )
 
 
-@router.callback_query(F.data == CALLBACK_CONTINUE)
-async def on_roles_confirmed(callback: CallbackQuery, state: FSMContext, db: VacancyDatabase) -> None:
+@router.callback_query(F.data == CALLBACK_ROLES_CONTINUE)
+async def on_roles_confirmed(
+    callback: CallbackQuery, state: FSMContext, db: VacancyDatabase
+) -> None:
     if not callback.from_user:
+        return
+
+    current_state = await state.get_state()
+    if current_state != SubscribeFlow.picking_roles.state:
+        await callback.answer("Сначала выбери роли", show_alert=True)
         return
 
     data = await state.get_data()
     selected = data.get("selected_roles") or []
+    category_id = data.get("category_id")
+    category = get_category(category_id) if category_id else None
     if not selected:
         await callback.answer("Выбери хотя бы одну роль", show_alert=True)
         return
 
     db.replace_category_roles(
         callback.from_user.id,
-        set(get_category(data["category_id"]).role_ids) if get_category(data.get("category_id", "")) else set(),
+        set(category.role_ids) if category else set(),
         selected,
     )
     await state.clear()
