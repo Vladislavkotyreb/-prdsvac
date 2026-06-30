@@ -124,10 +124,15 @@ def specialty_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def vacancy_keyboard(category_id: str, draft: set[str]) -> InlineKeyboardMarkup:
+def vacancy_keyboard(category_id: str, draft: set[str], saved_roles: list[str]) -> InlineKeyboardMarkup:
     category = get_category(category_id)
     if not category:
         return InlineKeyboardMarkup(inline_keyboard=[])
+
+    category_saved = _saved_roles_for_category(saved_roles, category_id)
+    continue_label = (
+        "Убрать из подписки" if not draft and category_saved else "Продолжить"
+    )
 
     rows: list[list[InlineKeyboardButton]] = []
     for role_id in category.role_ids:
@@ -146,7 +151,7 @@ def vacancy_keyboard(category_id: str, draft: set[str]) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton(text="← Назад", callback_data=S2_BACK),
-            InlineKeyboardButton(text="Продолжить", callback_data=S2_SAVE),
+            InlineKeyboardButton(text=continue_label, callback_data=S2_SAVE),
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -184,7 +189,7 @@ def _vacancy_step_text(category_id: str, draft: set[str], saved_roles: list[str]
         [
             "",
             "Отметь вакансии и нажми «Продолжить».",
-            "Снять все галочки и «Продолжить» — убрать это направление из подписки.",
+            "Снять все галочки → «Убрать из подписки», чтобы отключить это направление.",
             "«Назад» — отменить без сохранения.",
         ]
     )
@@ -213,7 +218,7 @@ async def _show_vacancy_step(
     await message.edit_text(
         _vacancy_step_text(category_id, draft, saved_roles),
         parse_mode="HTML",
-        reply_markup=vacancy_keyboard(category_id, draft),
+        reply_markup=vacancy_keyboard(category_id, draft, saved_roles),
     )
 
 
@@ -379,7 +384,7 @@ async def s2_toggle_vacancy(
     await callback.message.edit_text(
         _vacancy_step_text(category_id, draft, saved_roles),
         parse_mode="HTML",
-        reply_markup=vacancy_keyboard(category_id, draft),
+        reply_markup=vacancy_keyboard(category_id, draft, saved_roles),
     )
 
 
@@ -398,6 +403,12 @@ async def s2_save(callback: CallbackQuery, state: FSMContext, db: VacancyDatabas
     category = get_category(category_id) if category_id else None
     if not category:
         await callback.answer("Сначала выбери направление", show_alert=True)
+        return
+
+    if not draft and not _saved_roles_for_category(
+        db.get_subscriber_roles(callback.from_user.id), category_id
+    ):
+        await callback.answer("Выбери вакансии или нажми «Назад»", show_alert=True)
         return
 
     db.replace_category_roles(

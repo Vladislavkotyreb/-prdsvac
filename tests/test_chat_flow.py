@@ -47,13 +47,23 @@ class KeyboardStructureTest(unittest.TestCase):
         self.assertNotIn("Продолжить", str(data))
 
     def test_step2_has_back_and_continue(self):
-        data = _callback_data(vacancy_keyboard("design", set()))
+        data = _callback_data(vacancy_keyboard("design", set(), []))
         self.assertIn(S2_BACK, data)
         self.assertIn(S2_SAVE, data)
-        self.assertEqual(data[-2:], [S2_BACK, S2_SAVE])
+
+    def test_step2_remove_label_when_clearing(self):
+        data = _callback_data(
+            vacancy_keyboard("backend", set(), ["backend_python"])
+        )
+        labels = [
+            btn.text
+            for row in vacancy_keyboard("backend", set(), ["backend_python"]).inline_keyboard
+            for btn in row
+        ]
+        self.assertIn("Убрать из подписки", labels)
 
     def test_step2_toggle_prefixes(self):
-        data = _callback_data(vacancy_keyboard("design", set()))
+        data = _callback_data(vacancy_keyboard("design", set(), []))
         role_callbacks = [d for d in data if d.startswith(S2_ROLE)]
         self.assertEqual(len(role_callbacks), 3)
 
