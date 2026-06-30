@@ -100,8 +100,16 @@ class VacancyDatabase:
 
                 CREATE INDEX IF NOT EXISTS idx_subscriber_sent_dedup
                     ON subscriber_sent (user_id, dedup_key);
+
+                CREATE TABLE IF NOT EXISTS subscriber_roles (
+                    user_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    PRIMARY KEY (user_id, role)
+                );
                 """
             )
+
+            self._migrate_subscriber_roles(conn)
 
     def is_known(self, uid: str) -> bool:
         with self._connect() as conn:
@@ -200,9 +208,28 @@ class VacancyDatabase:
             ).fetchone()
             return row is not None
 
+    def _migrate_subscriber_roles(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            "SELECT user_id, role FROM subscribers WHERE active = 1"
+        ).fetchall()
+        for row in rows:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO subscriber_roles (user_id, role)
+                VALUES (?, ?)
+                """,
+                (int(row["user_id"]), row["role"]),
+            )
+
     def set_subscriber(self, user_id: int, role: str) -> None:
-        existing = self.get_subscriber(user_id)
+        self.set_subscriber_roles(user_id, [role])
+
+    def set_subscriber_roles(self, user_id: int, roles: list[str]) -> None:
+        unique_roles = list(dict.fromkeys(roles))
+        existing_roles = self.get_subscriber_roles(user_id)
         now = datetime.now(timezone.utc).isoformat()
+        primary_role = unique_roles[0] if unique_roles else ""
+
         with self._connect() as conn:
             conn.execute(
                 """
@@ -210,13 +237,34 @@ class VacancyDatabase:
                 VALUES (?, ?, ?, 1)
                 ON CONFLICT(user_id) DO UPDATE SET
                     role = excluded.role,
-                    subscribed_at = excluded.subscribed_at,
+                    subscribed_at = CASE
+                        WHEN subscribers.active = 0 THEN excluded.subscribed_at
+                        ELSE subscribers.subscribed_at
+                    END,
                     active = 1
                 """,
-                (user_id, role, now),
+                (user_id, primary_role, now),
             )
-        if existing and existing["role"] != role:
+            conn.execute("DELETE FROM subscriber_roles WHERE user_id = ?", (user_id,))
+            for role in unique_roles:
+                conn.execute(
+                    """
+                    INSERT INTO subscriber_roles (user_id, role)
+                    VALUES (?, ?)
+                    """,
+                    (user_id, role),
+                )
+
+        if set(existing_roles) != set(unique_roles):
             self.clear_subscriber_sent(user_id)
+
+    def replace_category_roles(
+        self, user_id: int, category_role_ids: set[str], roles: list[str]
+    ) -> None:
+        existing_roles = self.get_subscriber_roles(user_id)
+        kept = [role for role in existing_roles if role not in category_role_ids]
+        merged = list(dict.fromkeys(kept + roles))
+        self.set_subscriber_roles(user_id, merged)
 
     def clear_subscriber_sent(self, user_id: int) -> None:
         with self._connect() as conn:
@@ -224,6 +272,30 @@ class VacancyDatabase:
                 "DELETE FROM subscriber_sent WHERE user_id = ?",
                 (user_id,),
             )
+
+    def get_subscriber_roles(self, user_id: int) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT role
+                FROM subscriber_roles
+                WHERE user_id = ?
+                ORDER BY role
+                """,
+                (user_id,),
+            ).fetchall()
+            if rows:
+                return [row["role"] for row in rows]
+
+            row = conn.execute(
+                """
+                SELECT role
+                FROM subscribers
+                WHERE user_id = ? AND active = 1
+                """,
+                (user_id,),
+            ).fetchone()
+            return [row["role"]] if row and row["role"] else []
 
     def get_subscriber(self, user_id: int) -> Optional[dict]:
         with self._connect() as conn:
@@ -235,7 +307,11 @@ class VacancyDatabase:
                 """,
                 (user_id,),
             ).fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            data = dict(row)
+            data["roles"] = self.get_subscriber_roles(user_id)
+            return data
 
     def deactivate_subscriber(self, user_id: int) -> None:
         with self._connect() as conn:
@@ -251,10 +327,17 @@ class VacancyDatabase:
                 SELECT user_id, role, subscribed_at
                 FROM subscribers
                 WHERE active = 1
-                ORDER BY role, user_id
+                ORDER BY user_id
                 """
             ).fetchall()
-            return [dict(row) for row in rows]
+            result = []
+            for row in rows:
+                data = dict(row)
+                data["roles"] = self.get_subscriber_roles(int(row["user_id"]))
+                if not data["roles"] and data.get("role"):
+                    data["roles"] = [data["role"]]
+                result.append(data)
+            return result
 
     def is_sent_to_subscriber(self, user_id: int, vacancy_uid: str) -> bool:
         with self._connect() as conn:
