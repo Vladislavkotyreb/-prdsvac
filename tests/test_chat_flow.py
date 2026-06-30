@@ -47,23 +47,19 @@ class KeyboardStructureTest(unittest.TestCase):
         self.assertNotIn("Продолжить", str(data))
 
     def test_step2_has_back_and_continue(self):
-        data = _callback_data(vacancy_keyboard("design", set(), []))
+        data = _callback_data(vacancy_keyboard("design", set()))
         self.assertIn(S2_BACK, data)
         self.assertIn(S2_SAVE, data)
-
-    def test_step2_remove_label_when_clearing(self):
-        data = _callback_data(
-            vacancy_keyboard("backend", set(), ["backend_python"])
-        )
         labels = [
             btn.text
-            for row in vacancy_keyboard("backend", set(), ["backend_python"]).inline_keyboard
+            for row in vacancy_keyboard("design", set()).inline_keyboard
             for btn in row
         ]
-        self.assertIn("Убрать из подписки", labels)
+        self.assertIn("Продолжить", labels)
+        self.assertNotIn("Убрать из подписки", labels)
 
     def test_step2_toggle_prefixes(self):
-        data = _callback_data(vacancy_keyboard("design", set(), []))
+        data = _callback_data(vacancy_keyboard("design", set()))
         role_callbacks = [d for d in data if d.startswith(S2_ROLE)]
         self.assertEqual(len(role_callbacks), 3)
 
@@ -144,6 +140,7 @@ class FlowSimulationTest(unittest.IsolatedAsyncioTestCase):
         await s2_save(self._cb(S2_SAVE), state, self.db)
         roles = self.db.get_subscriber_roles(self.user_id)
         self.assertEqual(roles, ["graphic_designer"])
+        self.assertIn("✅ Готово", self.edited_texts[-1])
 
     async def test_toggle_updates_draft(self):
         state = self._ctx()
@@ -164,6 +161,28 @@ class FlowSimulationTest(unittest.IsolatedAsyncioTestCase):
         kb = self.edited_keyboards[-1]
         self.assertIn(S2_BACK, _callback_data(kb))
 
+    async def test_empty_continue_returns_to_step1(self):
+        state = self._ctx()
+        self.db.set_subscriber_roles(self.user_id, ["backend_python", "product_designer"])
+        await _show_vacancy_step(
+            self.message,
+            state,
+            "backend",
+            set(),
+            self.db.get_subscriber_roles(self.user_id),
+        )
+        await s2_save(self._cb(S2_SAVE), state, self.db)
+        self.assertEqual(await state.get_state(), SubscribeFlow.specialty.state)
+        self.assertEqual(self.db.get_subscriber_roles(self.user_id), ["product_designer"])
+        self.assertIn("Шаг 1 из 2", self.edited_texts[-1])
+
+    async def test_empty_continue_without_saved_goes_to_step1(self):
+        state = self._ctx()
+        await _show_vacancy_step(self.message, state, "design", set(), [])
+        await s2_save(self._cb(S2_SAVE), state, self.db)
+        self.assertEqual(await state.get_state(), SubscribeFlow.specialty.state)
+        self.assertEqual(self.db.get_subscriber_roles(self.user_id), [])
+
     async def test_clear_category_roles_with_empty_save(self):
         state = self._ctx()
         self.db.set_subscriber_roles(
@@ -180,7 +199,7 @@ class FlowSimulationTest(unittest.IsolatedAsyncioTestCase):
         await s2_save(self._cb(S2_SAVE), state, self.db)
         roles = self.db.get_subscriber_roles(self.user_id)
         self.assertEqual(roles, ["product_designer"])
-        self.assertNotIn("backend_python", roles)
+        self.assertEqual(await state.get_state(), SubscribeFlow.specialty.state)
 
 
 if __name__ == "__main__":
