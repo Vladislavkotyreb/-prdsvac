@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 try:
@@ -379,3 +379,128 @@ class VacancyDatabase:
                     now,
                 ),
             )
+
+    def _day_bounds_utc(self, timezone_name: str) -> tuple[str, str]:
+        tz = ZoneInfo(timezone_name)
+        today = datetime.now(tz).date()
+        day_start = datetime.combine(today, time.min, tzinfo=tz).astimezone(timezone.utc)
+        day_end = datetime.combine(today, time.max, tzinfo=tz).astimezone(timezone.utc)
+        return day_start.isoformat(), day_end.isoformat()
+
+    def count_active_subscribers(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM subscribers WHERE active = 1"
+            ).fetchone()
+            return int(row["cnt"])
+
+    def subscriber_role_counts(self) -> list[tuple[str, int]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT role, COUNT(*) AS cnt
+                FROM subscriber_roles
+                GROUP BY role
+                ORDER BY cnt DESC, role
+                """
+            ).fetchall()
+            return [(row["role"], int(row["cnt"])) for row in rows]
+
+    def subscriber_delivery_stats(self, timezone_name: str, days: int = 7) -> dict[str, int]:
+        tz = ZoneInfo(timezone_name)
+        period_start = (
+            datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+            - timedelta(days=days - 1)
+        ).astimezone(timezone.utc)
+        day_start, day_end = self._day_bounds_utc(timezone_name)
+
+        with self._connect() as conn:
+            period_row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS sent_total,
+                    COUNT(DISTINCT user_id) AS users_reached
+                FROM subscriber_sent
+                WHERE sent_at >= ?
+                """,
+                (period_start.isoformat(),),
+            ).fetchone()
+            today_row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS sent_total,
+                    COUNT(DISTINCT user_id) AS users_reached
+                FROM subscriber_sent
+                WHERE sent_at >= ? AND sent_at <= ?
+                """,
+                (day_start, day_end),
+            ).fetchone()
+
+        return {
+            "sent_period": int(period_row["sent_total"]),
+            "users_period": int(period_row["users_reached"]),
+            "sent_today": int(today_row["sent_total"]),
+            "users_today": int(today_row["users_reached"]),
+        }
+
+    def subscriber_sent_by_role(self, timezone_name: str, days: int = 7) -> list[tuple[str, int]]:
+        tz = ZoneInfo(timezone_name)
+        period_start = (
+            datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+            - timedelta(days=days - 1)
+        ).astimezone(timezone.utc)
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT sr.role AS role, COUNT(*) AS cnt
+                FROM subscriber_sent ss
+                JOIN subscriber_roles sr ON sr.user_id = ss.user_id
+                WHERE ss.sent_at >= ?
+                GROUP BY sr.role
+                ORDER BY cnt DESC, sr.role
+                """,
+                (period_start.isoformat(),),
+            ).fetchall()
+            return [(row["role"], int(row["cnt"])) for row in rows]
+
+    def channel_post_stats(self, timezone_name: str, days: int = 7) -> dict[str, int | Optional[dict]]:
+        tz = ZoneInfo(timezone_name)
+        period_start = (
+            datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+            - timedelta(days=days - 1)
+        ).astimezone(timezone.utc)
+        day_start, day_end = self._day_bounds_utc(timezone_name)
+
+        with self._connect() as conn:
+            posted_period = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM vacancies
+                WHERE first_seen_at >= ?
+                """,
+                (period_start.isoformat(),),
+            ).fetchone()
+            posted_today = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM vacancies
+                WHERE first_seen_at >= ? AND first_seen_at <= ?
+                """,
+                (day_start, day_end),
+            ).fetchone()
+            last_run = conn.execute(
+                """
+                SELECT started_at, finished_at, found_total, posted_new, status
+                FROM run_log
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        return {
+            "total_known": self.total_known(),
+            "posted_period": int(posted_period["cnt"]),
+            "posted_today": int(posted_today["cnt"]),
+            "last_run": dict(last_run) if last_run else None,
+        }

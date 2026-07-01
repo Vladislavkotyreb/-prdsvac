@@ -1,9 +1,13 @@
+import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
-from bot.grades import extract_grade
+from bot.database import VacancyDatabase
+from bot.grades import extract_grade, grade_from_hh_experience, resolve_grade
 from bot.formatters import CHANNEL_FOOTER, format_combined_digest, format_vacancy
 from bot.models import Vacancy
+from bot.stats import format_admin_stats
 from bot.subscriber_formatters import format_subscriber_digest
 
 
@@ -26,11 +30,31 @@ class ExtractGradeTests(unittest.TestCase):
     def test_junior_russian(self):
         self.assertEqual(extract_grade("Младший продуктовый дизайнер"), "Junior")
 
+    def test_beginner_russian(self):
+        self.assertEqual(extract_grade("Начинающий UX/UI-Designer"), "Junior")
+
     def test_no_grade(self):
         self.assertIsNone(extract_grade("Продуктовый дизайнер"))
 
     def test_head_of(self):
         self.assertEqual(extract_grade("Head of Product Design"), "Head")
+
+
+class HhExperienceGradeTests(unittest.TestCase):
+    def test_middle_experience(self):
+        self.assertEqual(grade_from_hh_experience("between3And6"), "Middle")
+
+    def test_title_has_priority(self):
+        self.assertEqual(
+            resolve_grade("Junior Product Designer", "moreThan6"),
+            "Junior",
+        )
+
+    def test_fallback_to_experience(self):
+        self.assertEqual(
+            resolve_grade("Product Designer", "between3And6"),
+            "Middle",
+        )
 
 
 class FormatVacancyGradeTests(unittest.TestCase):
@@ -48,10 +72,22 @@ class FormatVacancyGradeTests(unittest.TestCase):
         self.assertEqual(lines[1], "📊 Senior")
         self.assertEqual(lines[2], "🏢 Acme")
 
-    def test_no_grade_line_when_missing(self):
+    def test_grade_from_vacancy_field(self):
         vacancy = Vacancy(
             source="hh.ru",
             external_id="2",
+            title="Продуктовый дизайнер",
+            company="Acme",
+            url="https://example.com",
+            grade="Middle",
+        )
+        text = format_vacancy(vacancy)
+        self.assertIn("📊 Middle", text)
+
+    def test_no_grade_line_when_missing(self):
+        vacancy = Vacancy(
+            source="hh.ru",
+            external_id="3",
             title="Продуктовый дизайнер",
             company="Acme",
             url="https://example.com",
@@ -79,6 +115,51 @@ class DigestFooterTests(unittest.TestCase):
         messages, _ = format_subscriber_digest("продуктового дизайнера", [self._sample()], 1)
         self.assertNotIn("prdsvac", messages[-1])
         self.assertNotIn(CHANNEL_FOOTER, messages[-1])
+
+
+class AdminStatsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = VacancyDatabase(Path(self.tmp.name) / "test.db")
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db._connect() as conn:
+            conn.execute(
+                "INSERT INTO subscribers (user_id, role, subscribed_at, active) VALUES (1, 'product_designer', ?, 1)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO subscribers (user_id, role, subscribed_at, active) VALUES (2, 'backend_python', ?, 1)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO subscriber_roles (user_id, role) VALUES (1, 'product_designer')"
+            )
+            conn.execute(
+                "INSERT INTO subscriber_roles (user_id, role) VALUES (2, 'backend_python')"
+            )
+            conn.execute(
+                """
+                INSERT INTO subscriber_sent (user_id, vacancy_uid, dedup_key, sent_at)
+                VALUES (1, 'hh.ru:1', 'key1', ?)
+                """,
+                (now,),
+            )
+            conn.execute(
+                """
+                INSERT INTO run_log (started_at, finished_at, found_total, posted_new, status)
+                VALUES (?, ?, 10, 3, 'ok')
+                """,
+                (now, now),
+            )
+
+    def test_stats_contains_key_sections(self):
+        text = format_admin_stats(self.db, "Europe/Moscow")
+        self.assertIn("Активных: <b>2</b>", text)
+        self.assertIn("Продуктовый дизайнер", text)
+        self.assertIn("Канал @prdsvac", text)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
 
 
 if __name__ == "__main__":

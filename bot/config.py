@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -19,6 +20,7 @@ class Settings:
     timezone: str
     max_vacancy_age_hours: int
     db_path: Path
+    telegram_admin_id: Optional[int]
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -40,6 +42,8 @@ class Settings:
             or "ProductDesignerVacancyBot/1.0 (kotvlad2016@gmail.com)"
         ).strip()
 
+        admin_raw = os.getenv("TELEGRAM_ADMIN_ID", "").strip()
+
         return cls(
             telegram_bot_token=token,
             telegram_chat_id=int(chat_id),
@@ -48,6 +52,7 @@ class Settings:
             timezone=os.getenv("TIMEZONE", "Europe/Moscow").strip(),
             max_vacancy_age_hours=int(os.getenv("MAX_VACANCY_AGE_HOURS", "72")),
             db_path=BASE_DIR / "data" / "vacancies.db",
+            telegram_admin_id=int(admin_raw) if admin_raw else None,
         )
 
 

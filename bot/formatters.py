@@ -21,7 +21,7 @@ def format_vacancy(vacancy: Vacancy) -> str:
         f"🎨 <b>{escape_html(vacancy.title)}</b>",
     ]
 
-    if grade := extract_grade(vacancy.title):
+    if grade := vacancy.grade or extract_grade(vacancy.title):
         lines.append(f"📊 {escape_html(grade)}")
 
     lines.extend([

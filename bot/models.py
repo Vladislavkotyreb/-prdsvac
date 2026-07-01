@@ -16,6 +16,7 @@ class Vacancy:
     location: Optional[str] = None
     published_at: Optional[datetime] = None
     work_format: Optional[str] = None
+    grade: Optional[str] = None
 
     @property
     def uid(self) -> str:

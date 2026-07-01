@@ -29,6 +29,7 @@ from bot.database import VacancyDatabase
 from bot.role_categories import CATEGORIES, CATEGORY_IDS, get_category
 from bot.roles import ROLES
 from bot.russian import format_subscription_roles, format_success_roles
+from bot.stats import format_admin_stats
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -79,6 +80,10 @@ class InjectMiddleware:
     ) -> Any:
         data.update(self.dependencies)
         return await handler(event, data)
+
+
+def _is_admin(user_id: int, settings: Settings) -> bool:
+    return settings.telegram_admin_id is not None and user_id == settings.telegram_admin_id
 
 
 def _is_subscribed(user_id: int, db: VacancyDatabase) -> bool:
@@ -312,6 +317,18 @@ async def cmd_myrole(message: Message, db: VacancyDatabase) -> None:
     await send_subscription_info(message, db)
 
 
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, db: VacancyDatabase, settings: Settings) -> None:
+    if not message.from_user:
+        return
+    if not _is_admin(message.from_user.id, settings):
+        await message.answer("Команда только для администратора.")
+        return
+
+    text = format_admin_stats(db, settings.timezone)
+    await message.answer(text, parse_mode="HTML")
+
+
 # --- Шаг 1: специальность (тап → сразу шаг 2) ---
 
 @router.callback_query(F.data.startswith(S1_CAT))
@@ -462,7 +479,7 @@ async def main() -> None:
 
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
-    dp.update.middleware(InjectMiddleware(db=db))
+    dp.update.middleware(InjectMiddleware(db=db, settings=settings))
     dp.include_router(router)
 
     logger.info("Чат-бот подписок запущен (polling)")

@@ -9,6 +9,7 @@ import aiohttp
 from bot.config import HH_AREAS, SEARCH_QUERIES, Settings
 from bot.dates import parse_iso_datetime
 from bot.filters import is_product_designer_vacancy
+from bot.grades import resolve_grade
 from bot.models import Vacancy
 from bot.parsers.base import BaseParser
 
@@ -114,6 +115,8 @@ class HHParser(BaseParser):
             published_at = parse_iso_datetime(published)
 
         employer = item.get("employer", {}) or {}
+        experience = item.get("experience") or {}
+        hh_experience_id = experience.get("id")
 
         return Vacancy(
             source=self.source,
@@ -125,6 +128,7 @@ class HHParser(BaseParser):
             location=location,
             published_at=published_at,
             work_format=work_format,
+            grade=resolve_grade(title, hh_experience_id),
         )
 
     @staticmethod

@@ -10,11 +10,19 @@ _GRADE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bprincipal\b", re.I), "Principal"),
     (re.compile(r"\bstaff\b", re.I), "Staff"),
     (re.compile(r"\b(?:senior|sr\.?|sen\.?)\b", re.I), "Senior"),
-    (re.compile(r"\b(?:старш(?:ий|ая|ее|его)|синьор|sinior)\b", re.I), "Senior"),
+    (re.compile(r"\b(?:старш(?:ий|ая|ее|его)|синьор|sinior|сеньор)\b", re.I), "Senior"),
     (re.compile(r"\b(?:middle|mid\.?|мидл|средн(?:ий|яя|ее|его))\b", re.I), "Middle"),
     (re.compile(r"\b(?:junior|jr\.?|jun\.?|младш(?:ий|ая|ее|его)|джун(?:ior)?)\b", re.I), "Junior"),
     (re.compile(r"\b(?:intern(?:ship)?|trainee|стаж[её]р(?:ка)?)\b", re.I), "Стажёр"),
+    (re.compile(r"\bначинающ", re.I), "Junior"),
 )
+
+_HH_EXPERIENCE_GRADES: dict[str, str] = {
+    "noExperience": "Junior",
+    "between1And3": "Junior",
+    "between3And6": "Middle",
+    "moreThan6": "Senior",
+}
 
 
 def extract_grade(title: str) -> Optional[str]:
@@ -27,3 +35,14 @@ def extract_grade(title: str) -> Optional[str]:
             return label
 
     return None
+
+
+def grade_from_hh_experience(experience_id: Optional[str]) -> Optional[str]:
+    if not experience_id:
+        return None
+    return _HH_EXPERIENCE_GRADES.get(experience_id)
+
+
+def resolve_grade(title: str, hh_experience_id: Optional[str] = None) -> Optional[str]:
+    """Сначала грейд из названия, иначе — из опыта HH.ru."""
+    return extract_grade(title) or grade_from_hh_experience(hh_experience_id)
