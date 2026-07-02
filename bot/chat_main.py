@@ -226,7 +226,7 @@ async def send_welcome(message: Message, subscribed: bool = False) -> None:
     await message.answer(
         "Привет! Каждый день в <b>10:00 (МСК)</b> присылаю новые вакансии в личку.\n\n"
         "Сначала специальность, потом вакансии — можно несколько.\n"
-        "Источники: HeadHunter, Habr Career, GeekJob, GetMatch (для дизайнеров).",
+        "Источники: HeadHunter, GeekJob, GetMatch (для дизайнеров).",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(subscribed),
     )

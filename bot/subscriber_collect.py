@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
 
 import aiohttp
 
-from bot.config import HH_AREAS, Settings
+from bot.config import Settings
+from bot.dates import dedupe_by_title_company
 from bot.models import Vacancy
-from bot.parsers.getmatch import GetMatchParser
-from bot.parsers.habr import HabrParser
+from bot.parsers.bigtech import BigTechCareersParser
 from bot.parsers.geekjob import GeekJobParser
+from bot.parsers.getmatch import GetMatchParser
 from bot.parsers.hh import HHParser
 from bot.roles import Role
 
@@ -23,7 +23,7 @@ async def collect_for_role(settings: Settings, role: Role) -> list[Vacancy]:
 
     for source, vacancies in [
         ("hh.ru", await _fetch_hh(settings, role)),
-        ("habr.com", await _fetch_habr(role)),
+        ("careers", await _fetch_careers(settings, role)),
         ("geekjob.ru", await _fetch_geekjob(role)),
     ]:
         logger.info("Подписчики [%s] %s: найдено %s", role.id, source, len(vacancies))
@@ -38,7 +38,7 @@ async def collect_for_role(settings: Settings, role: Role) -> list[Vacancy]:
             if role.matcher(vacancy.title):
                 results[vacancy.uid] = vacancy
 
-    return list(results.values())
+    return dedupe_by_title_company(list(results.values()))
 
 
 async def _fetch_getmatch(role: Role) -> list[Vacancy]:
@@ -78,84 +78,17 @@ async def _fetch_getmatch(role: Role) -> list[Vacancy]:
 
 async def _fetch_hh(settings: Settings, role: Role) -> list[Vacancy]:
     parser = HHParser(settings)
-    results: dict[str, Vacancy] = {}
-    headers = parser._headers()
-    date_to_dt = datetime.now(timezone.utc)
-    date_from_dt = date_to_dt - timedelta(hours=settings.max_vacancy_age_hours)
-    date_from = date_from_dt.isoformat(timespec="seconds")
-    date_to = date_to_dt.isoformat(timespec="seconds")
-
-    async with aiohttp.ClientSession(headers=headers) as session:
-        for area in HH_AREAS:
-            for query in role.hh_queries:
-                page = 0
-                while page < 3:
-                    params = {
-                        "text": query,
-                        "area": area,
-                        "per_page": 100,
-                        "page": page,
-                        "order_by": "publication_time",
-                        "search_field": "name",
-                        "date_from": date_from,
-                        "date_to": date_to,
-                    }
-                    async with session.get(HHParser.API_URL, params=params) as resp:
-                        if resp.status == 403:
-                            logger.warning(
-                                "HH.ru API 403 для подписчиков [%s] (auth=%s)",
-                                role.id,
-                                "yes" if settings.hh_access_token else "no",
-                            )
-                            return list(results.values())
-                        if resp.status != 200:
-                            break
-                        data = await resp.json()
-
-                    items = data.get("items", [])
-                    if not items:
-                        break
-
-                    for item in items:
-                        vacancy = parser._parse_item(item)
-                        if vacancy:
-                            results[vacancy.uid] = vacancy
-
-                    page += 1
-                    if page >= data.get("pages", 0):
-                        break
-
-    return list(results.values())
+    vacancies = await parser.fetch_for_queries(role.hh_queries, role.matcher)
+    bigtech = await parser.fetch_bigtech(role.matcher, role.hh_queries)
+    merged = {vacancy.uid: vacancy for vacancy in vacancies}
+    for vacancy in bigtech:
+        merged[vacancy.uid] = vacancy
+    return list(merged.values())
 
 
-async def _fetch_habr(role: Role) -> list[Vacancy]:
-    base = HabrParser()
-    results: dict[str, Vacancy] = {}
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-
-    async with aiohttp.ClientSession(headers=headers) as session:
-        for query in role.habr_queries:
-            for page in range(1, 3):
-                params = {"q": query, "page": page}
-                async with session.get(
-                    f"https://career.habr.com/vacancies", params=params
-                ) as resp:
-                    if resp.status != 200:
-                        break
-                    html = await resp.text()
-
-                page_results = base._parse_html(html)
-                if not page_results:
-                    break
-                for vacancy in page_results:
-                    results[vacancy.uid] = vacancy
-
-    return list(results.values())
+async def _fetch_careers(settings: Settings, role: Role) -> list[Vacancy]:
+    parser = BigTechCareersParser(settings)
+    return await parser.fetch_matching(role.matcher, search_queries=role.hh_queries)
 
 
 async def _fetch_geekjob(role: Role) -> list[Vacancy]:

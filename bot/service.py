@@ -15,10 +15,11 @@ from bot.dates import dedupe_by_title_company, is_fresh
 from bot.formatters import format_combined_digest
 from bot.models import Vacancy
 from bot.parsers.base import BaseParser
+from bot.parsers.bigtech import BigTechCareersParser
 from bot.parsers.geekjob import GeekJobParser
 from bot.parsers.getmatch import GetMatchParser
-from bot.parsers.habr import HabrParser
 from bot.parsers.hh import HHParser
+from bot.source_priority import source_rank
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class VacancyService:
         self.bot = bot
         self.parsers: list[BaseParser] = [
             HHParser(settings),
-            HabrParser(),
+            BigTechCareersParser(settings),
             GeekJobParser(),
             GetMatchParser(),
         ]
@@ -54,13 +55,20 @@ class VacancyService:
         for vacancy in vacancies:
             if self.db.is_known(vacancy.uid):
                 continue
-            if self.db.is_title_company_known(vacancy.title, vacancy.company):
-                logger.info(
-                    "Пропуск дубля по названию+компании: %s / %s",
-                    vacancy.title,
-                    vacancy.company,
-                )
-                continue
+
+            existing_source = self.db.get_source_for_dedup(
+                vacancy.title, vacancy.company
+            )
+            if existing_source is not None:
+                if source_rank(vacancy.source) >= source_rank(existing_source):
+                    logger.info(
+                        "Пропуск дубля по названию+компании (%s): %s / %s",
+                        existing_source,
+                        vacancy.title,
+                        vacancy.company,
+                    )
+                    continue
+
             new_items.append(vacancy)
         return new_items
 
@@ -156,11 +164,11 @@ class VacancyService:
                 published_at=datetime.now(),
             ),
             Vacancy(
-                source="habr.com",
+                source="geekjob.ru",
                 external_id="sample-2",
                 title="Продуктовый дизайнер",
                 company="Тинькофф",
-                url="https://career.habr.com/vacancies/123456",
+                url="https://geekjob.ru/vacancy/123456",
                 salary="от 250 000 ₽",
                 location="Удалённо",
                 work_format="Удалённо",

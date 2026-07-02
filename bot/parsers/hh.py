@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+import math
+from typing import Any, Callable, Optional
 
 import aiohttp
 
-from bot.config import HH_AREAS, SEARCH_QUERIES, Settings
+from bot.config import (
+    BIGTECH_HH_EMPLOYERS,
+    BIGTECH_SEARCH_QUERIES,
+    HH_AREAS,
+    SEARCH_QUERIES,
+    Settings,
+)
 from bot.dates import parse_iso_datetime
 from bot.filters import is_product_designer_vacancy
 from bot.grades import resolve_grade
@@ -14,6 +21,8 @@ from bot.models import Vacancy
 from bot.parsers.base import BaseParser
 
 logger = logging.getLogger(__name__)
+
+HH_REQUEST_DELAY_SEC = 0.2
 
 
 class HHParser(BaseParser):
@@ -25,62 +34,172 @@ class HHParser(BaseParser):
 
     async def fetch(self) -> list[Vacancy]:
         results: dict[str, Vacancy] = {}
-        headers = self._headers()
-        date_to_dt = datetime.now(timezone.utc)
-        date_from_dt = date_to_dt - timedelta(hours=self.settings.max_vacancy_age_hours)
-        date_from = date_from_dt.isoformat(timespec="seconds")
-        date_to = date_to_dt.isoformat(timespec="seconds")
+        forbidden = False
 
-        async with aiohttp.ClientSession(headers=headers) as session:
+        async with aiohttp.ClientSession(headers=self._headers()) as session:
+            period = self._period_days()
             for area in HH_AREAS:
                 for query in SEARCH_QUERIES:
-                    page = 0
-                    while page < 5:
-                        params = {
+                    forbidden = await self._search(
+                        session,
+                        results,
+                        {
                             "text": query,
                             "area": area,
                             "per_page": 100,
-                            "page": page,
                             "order_by": "publication_time",
                             "search_field": "name",
-                            "date_from": date_from,
-                            "date_to": date_to,
-                        }
-                        async with session.get(self.API_URL, params=params) as resp:
-                            if resp.status == 403:
-                                logger.warning(
-                                    "HH.ru API 403 (доступ запрещён, auth=%s). "
-                                    "Пропускаю источник — задайте HH_ACCESS_TOKEN.",
-                                    "yes" if self.settings.hh_access_token else "no",
-                                )
-                                return list(results.values())
-                            if resp.status != 200:
-                                body = await resp.text()
-                                logger.warning(
-                                    "HH.ru API %s для area=%s query=%r auth=%s: %s",
-                                    resp.status,
-                                    area,
-                                    query,
-                                    "yes" if self.settings.hh_access_token else "no",
-                                    body[:200],
-                                )
-                                break
-                            data = await resp.json()
+                            "period": period,
+                        },
+                        matcher=is_product_designer_vacancy,
+                        max_pages=5,
+                        forbidden=forbidden,
+                    )
+                    if forbidden:
+                        break
+                if forbidden:
+                    break
 
-                        items = data.get("items", [])
-                        if not items:
-                            break
-
-                        for item in items:
-                            vacancy = self._parse_item(item)
-                            if vacancy and is_product_designer_vacancy(vacancy.title):
-                                results[vacancy.uid] = vacancy
-
-                        page += 1
-                        if page >= data.get("pages", 0):
-                            break
+            if not forbidden:
+                await self._fetch_bigtech_employers(
+                    session, results, matcher=is_product_designer_vacancy
+                )
 
         return list(results.values())
+
+    async def fetch_for_queries(
+        self,
+        queries: tuple[str, ...],
+        matcher: Callable[[str], bool],
+        *,
+        max_pages: int = 3,
+    ) -> list[Vacancy]:
+        results: dict[str, Vacancy] = {}
+        forbidden = False
+        period = self._period_days()
+
+        async with aiohttp.ClientSession(headers=self._headers()) as session:
+            for area in HH_AREAS:
+                for query in queries:
+                    forbidden = await self._search(
+                        session,
+                        results,
+                        {
+                            "text": query,
+                            "area": area,
+                            "per_page": 100,
+                            "order_by": "publication_time",
+                            "search_field": "name",
+                            "period": period,
+                        },
+                        matcher=matcher,
+                        max_pages=max_pages,
+                        forbidden=forbidden,
+                    )
+                    if forbidden:
+                        break
+                if forbidden:
+                    break
+
+        return list(results.values())
+
+    async def _fetch_bigtech_employers(
+        self,
+        session: aiohttp.ClientSession,
+        results: dict[str, Vacancy],
+        matcher: Callable[[str], bool],
+        queries: tuple[str, ...] | None = None,
+    ) -> None:
+        period = self._period_days()
+        added = 0
+        search_queries = queries or tuple(BIGTECH_SEARCH_QUERIES)
+
+        for company_name, employer_id in BIGTECH_HH_EMPLOYERS:
+            for query in search_queries:
+                before = len(results)
+                await self._search(
+                    session,
+                    results,
+                    {
+                        "employer_id": employer_id,
+                        "text": query,
+                        "per_page": 100,
+                        "order_by": "publication_time",
+                        "period": period,
+                    },
+                    matcher=matcher,
+                    max_pages=2,
+                    forbidden=False,
+                )
+                added += len(results) - before
+
+        if added:
+            logger.info("HH.ru bigtech employers: +%s вакансий", added)
+
+    async def fetch_bigtech(
+        self,
+        matcher: Callable[[str], bool],
+        queries: tuple[str, ...] | None = None,
+    ) -> list[Vacancy]:
+        results: dict[str, Vacancy] = {}
+        async with aiohttp.ClientSession(headers=self._headers()) as session:
+            await self._fetch_bigtech_employers(session, results, matcher, queries)
+        return list(results.values())
+
+    async def _search(
+        self,
+        session: aiohttp.ClientSession,
+        results: dict[str, Vacancy],
+        base_params: dict[str, Any],
+        matcher: Callable[[str], bool],
+        *,
+        max_pages: int,
+        forbidden: bool,
+    ) -> bool:
+        if forbidden:
+            return True
+
+        for page in range(max_pages):
+            params = {**base_params, "page": page}
+            async with session.get(self.API_URL, params=params) as resp:
+                if resp.status == 403:
+                    logger.warning(
+                        "HH.ru API 403 (auth=%s). Проверьте HH_ACCESS_TOKEN и HH_USER_AGENT.",
+                        "yes" if self.settings.hh_access_token else "no",
+                    )
+                    return True
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning(
+                        "HH.ru API %s params=%s auth=%s: %s",
+                        resp.status,
+                        {k: v for k, v in params.items() if k != "page"},
+                        "yes" if self.settings.hh_access_token else "no",
+                        body[:200],
+                    )
+                    break
+                data = await resp.json()
+
+            items = data.get("items", [])
+            if not items:
+                break
+
+            for item in items:
+                vacancy = self._parse_item(item)
+                if vacancy and matcher(vacancy.title):
+                    results[vacancy.uid] = vacancy
+
+            if page + 1 >= data.get("pages", 0):
+                break
+
+            await asyncio.sleep(HH_REQUEST_DELAY_SEC)
+
+        await asyncio.sleep(HH_REQUEST_DELAY_SEC)
+        return False
+
+    def _period_days(self) -> int:
+        hours = self.settings.max_vacancy_age_hours
+        return max(1, math.ceil(hours / 24))
 
     def _headers(self) -> dict[str, str]:
         headers = {

@@ -51,7 +51,7 @@ bot/
 
   service.py            — КАНАЛ: collect → filter → post → save
   subscriber_service.py — ПОДПИСЧИКИ: collect по роли → DM каждому
-  subscriber_collect.py — парсинг HH/Habr/GeekJob/GetMatch по роли
+  subscriber_collect.py — парсинг HH/careers/GeekJob/GetMatch по роли
   subscriber_formatters.py — HTML для личных дайджестов (без футера канала)
 
   roles.py              — MVP-роли: product_designer, frontend, backend
@@ -74,7 +74,7 @@ deploy/isp/
 
 ### Канал (не трогать)
 
-1. `collect_all` — HH, Habr, GeekJob, GetMatch с фильтром product designer
+1. `collect_all` — HH, careers, GeekJob, GetMatch с фильтром product designer
 2. `filter_new` / `filter_fresh` / dedupe
 3. Пост в `TELEGRAM_CHAT_ID`
 4. В базу `vacancies` пишутся **только опубликованные** (не все спарсенные)
@@ -186,6 +186,7 @@ tail -30 logs/chat-bot.log
 
 - **Канал и подписчики** используют одну SQLite БД, но разные таблицы дедупа.
   WAL включён (`PRAGMA journal_mode=WAL`).
+- **HH даты** приходят в формате `+0300`; `parse_iso_datetime` нормализует его в `+03:00`.
 - **GetMatch** не подходит для dev-ролей (specialization=design).
 - **Фильтры frontend/backend** — эвристика по title, возможны false positive/negative.
 - **shared hosting** — `chat_main` может падать; watchdog перезапускает каждые 5 мин.

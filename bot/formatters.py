@@ -5,7 +5,7 @@ from bot.models import Vacancy
 
 SOURCE_LABELS = {
     "hh.ru": "HeadHunter",
-    "habr.com": "Habr Career",
+    "careers": "Карьера (бигтех)",
     "geekjob.ru": "GeekJob",
     "getmatch.ru": "GetMatch",
 }

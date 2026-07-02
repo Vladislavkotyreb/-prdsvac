@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from bot.models import Vacancy
+from bot.source_priority import source_rank
 
 MONTHS = {
     "январ": 1,
@@ -46,6 +47,7 @@ def parse_iso_datetime(value: str) -> Optional[datetime]:
     text = value.strip()
     if not text:
         return None
+    text = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", text)
     try:
         return ensure_aware(datetime.fromisoformat(text.replace("Z", "+00:00")))
     except ValueError:
@@ -117,15 +119,28 @@ def dedupe_by_title_company(vacancies: list[Vacancy]) -> list[Vacancy]:
     best: dict[str, Vacancy] = {}
     ordered = sorted(
         vacancies,
-        key=lambda item: ensure_aware(item.published_at) if item.published_at else datetime.min.replace(tzinfo=timezone.utc),
-        reverse=True,
+        key=lambda item: (
+            source_rank(item.source),
+            -(
+                ensure_aware(item.published_at).timestamp()
+                if item.published_at
+                else datetime.min.replace(tzinfo=timezone.utc).timestamp()
+            ),
+        ),
     )
     for vacancy in ordered:
         key = dedupe_key(vacancy.title, vacancy.company)
         if key not in best:
             best[key] = vacancy
+
     return sorted(
         best.values(),
-        key=lambda item: ensure_aware(item.published_at) if item.published_at else datetime.min.replace(tzinfo=timezone.utc),
-        reverse=True,
+        key=lambda item: (
+            source_rank(item.source),
+            -(
+                ensure_aware(item.published_at).timestamp()
+                if item.published_at
+                else datetime.min.replace(tzinfo=timezone.utc).timestamp()
+            ),
+        ),
     )

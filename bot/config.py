@@ -79,3 +79,36 @@ SEARCH_QUERIES = [
     "ux ui designer",
     "UX UI дизайнер",
 ]
+
+# HH employer_id для прямого поиска вакансий бигтеха на HeadHunter
+BIGTECH_HH_EMPLOYERS: list[tuple[str, int]] = [
+    ("Яндекс", 1740),
+    ("Тинькофф", 78638),
+    ("VK", 15478),
+    ("Авито", 84585),
+    ("Ozon", 2180),
+    ("Сбер", 3529),
+    ("Wildberries", 870697),
+    ("2ГИС", 64174),
+    ("Контур", 41862),
+    ("МТС", 3776),
+    ("Лаборатория Касперского", 1057),
+]
+
+BIGTECH_SEARCH_QUERIES = [
+    "продуктовый дизайнер",
+    "product designer",
+    "ux ui designer",
+    "дизайнер интерфейсов",
+    "ux designer",
+]
+
+# Карьерные сайты (HTML). search_url_template — {query} URL-encoded.
+BIGTECH_CAREER_SITES: list[dict[str, str]] = [
+    {
+        "company": "Сбер",
+        "base_url": "https://rabota.sber.ru",
+        "search_url_template": "https://rabota.sber.ru/search?query={query}",
+        "vacancy_path_re": r"/search/\d+",
+    },
+]

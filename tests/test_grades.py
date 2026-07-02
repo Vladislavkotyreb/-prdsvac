@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from bot.database import VacancyDatabase
+from bot.dates import parse_iso_datetime
 from bot.grades import extract_grade, grade_from_hh_experience, resolve_grade
 from bot.formatters import CHANNEL_FOOTER, format_combined_digest, format_vacancy
 from bot.models import Vacancy
@@ -55,6 +56,13 @@ class HhExperienceGradeTests(unittest.TestCase):
             resolve_grade("Product Designer", "between3And6"),
             "Middle",
         )
+
+
+class HhDateParsingTests(unittest.TestCase):
+    def test_hh_timezone_without_colon(self):
+        parsed = parse_iso_datetime("2026-07-02T15:28:41+0300")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.isoformat(), "2026-07-02T12:28:41+00:00")
 
 
 class FormatVacancyGradeTests(unittest.TestCase):

@@ -126,9 +126,22 @@ class VacancyDatabase:
             ).fetchone()
             return row is not None
 
+    def get_source_for_dedup(self, title: str, company: str) -> Optional[str]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT source FROM vacancies WHERE dedup_key = ? LIMIT 1",
+                (dedupe_key(title, company or ""),),
+            ).fetchone()
+            return row["source"] if row else None
+
     def save_vacancy(self, vacancy: Vacancy) -> None:
         now = datetime.now(timezone.utc).isoformat()
+        key = dedupe_key(vacancy.title, vacancy.company or "")
         with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM vacancies WHERE dedup_key = ? AND uid != ?",
+                (key, vacancy.uid),
+            )
             conn.execute(
                 """
                 INSERT OR IGNORE INTO vacancies
